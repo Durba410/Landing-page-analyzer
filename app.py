@@ -1,65 +1,57 @@
+import os
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-import os
-import requests
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openai/gpt-3.5-turbo"
+api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route('/')
-def serve_html():
+def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/api/audit', methods=['POST'])
-def generate_audit():
-    data = request.json
-    url = data.get('url', '')
-    description = data.get('description', '')
-
-    if not url:
-        return jsonify({"error": "Missing URL"}), 400
-
-    prompt = f"""
-You are a CRO (Conversion Rate Optimization) expert.
-Provide a CRO Audit report for this landing page: {url}
-Page Description: {description}
-
-Include:
-- Hero section analysis
-- CTA effectiveness
-- Copy tone
-- Trust signals
-- Visual hierarchy
-- Suggestions
-"""
-
+def audit():
     try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-        )
+        data = request.get_json()
+        url = data.get('url')
+        description = data.get('description')
+
+        if not api_key:
+            return jsonify({'error': 'API key not found'}), 401
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        prompt = f"""Perform a detailed CRO (Conversion Rate Optimization) audit for the following website:
+
+URL: {url}
+Description: {description}
+
+Provide actionable feedback and highlight problem areas. Cover the hero section, layout, CTA placement, copy clarity, and mobile responsiveness."""
+
+        payload = {
+            "model": "gpt-4o",  # This is the actual model name
+            "messages": [{"role": "user", "content": prompt}]
+        }
+
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
         result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        return jsonify({'result': content})
 
-        if 'choices' in result and result['choices']:
-            return jsonify({"audit": result['choices'][0]['message']['content']})
-        else:
-            return jsonify({"error": "No valid response"}), 500
-
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f"Request failed: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': 'Something went wrong'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
